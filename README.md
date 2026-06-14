@@ -24,12 +24,49 @@ A receipt is **two small files** that belong together:
 You keep both files. To prove the action later, you hand someone the two files and they run
 the verifier. No database, no login, no trust in us.
 
-## How verification works
+---
 
-The verifier reads only the two files and tells you whether the receipt is genuine and
-finalized — a plain **`VALID FINAL`** or, if anything is altered or incomplete, a clear
-**not-valid** result. It is fully **offline**: it never contacts our servers, so the result
-can't be faked by us.
+## Quick start
+
+1. Download the verifier from this repo (`bin/tl_verifier-linux-amd64`) and make it runnable:
+   ```bash
+   chmod +x tl_verifier-linux-amd64
+   ```
+2. Verify a receipt — pass its two files:
+   ```bash
+   ./tl_verifier-linux-amd64 verify your-receipt.tlcert your-receipt.tlbundle
+   ```
+3. A genuine, finalized receipt prints:
+   ```
+   VALID FINAL
+   ```
+
+That's it. `VALID FINAL` means the receipt is genuine and finalized; anything else means do not
+trust it.
+
+---
+
+## What the result means
+
+| Output | Meaning |
+|---|---|
+| `VALID FINAL` | The receipt is genuine and finalized. The action is proven. |
+| `NOT VALID` (or a read error) | The receipt is altered, incomplete, or not finalized. **Do not trust it.** |
+
+Verification is fully **offline** — the tool reads only the two files. It does not call our
+servers, so the result can't be faked by us.
+
+---
+
+## Where receipts come from
+
+You get a receipt whenever you notarize an action through TimeLayer (via our API or an
+integration). The service returns the two files — `*.tlcert` and `*.tlbundle` — and **you
+download and keep them**. They are yours. We don't store them for you, by design.
+
+(A public "notarize → verify" button on https://timelayer-os.com is coming with launch.)
+
+---
 
 ## Store your receipts
 
@@ -45,10 +82,12 @@ mkdir -p ~/timelayer-receipts
 - Back the folder up like any important document — the receipts are *your* proof.
 - The files are safe to copy and share: a receipt reveals the proof, not your secrets.
 
-## Release
+---
 
-The verifier (binary builds for Linux/macOS/Windows **and** a fully auditable source release)
-is being finalized and lands here shortly. Watch this repo for the release.
+## Platforms
+
+This release ships a **Linux x86-64** binary. Need macOS or Windows? Open an issue and we'll
+add it. A fully auditable source release of the verifier is planned.
 
 ## License
 
@@ -79,12 +118,40 @@ MIT — see [LICENSE](LICENSE).
 Оба файла ты хранишь у себя. Чтобы потом доказать действие — отдаёшь два файла, и человек
 запускает верификатор. Без базы, без логина, без доверия к нам.
 
-## Как работает проверка
+## Быстрый старт
 
-Верификатор читает только два файла и говорит, настоящая ли квитанция и финализирована ли —
-простое **`VALID FINAL`** или, если что-то изменено или неполно, понятный результат
-**«не валидна»**. Проверка полностью **офлайн**: инструмент не обращается к нашим серверам,
-поэтому подделать результат с нашей стороны нельзя.
+1. Скачай верификатор из репозитория (`bin/tl_verifier-linux-amd64`) и сделай исполняемым:
+   ```bash
+   chmod +x tl_verifier-linux-amd64
+   ```
+2. Проверь квитанцию — передай её два файла:
+   ```bash
+   ./tl_verifier-linux-amd64 verify твоя-квитанция.tlcert твоя-квитанция.tlbundle
+   ```
+3. Настоящая и финализированная квитанция выведет:
+   ```
+   VALID FINAL
+   ```
+
+Всё. `VALID FINAL` — квитанция настоящая и финализирована; что-либо другое — не доверяй ей.
+
+## Что значит результат
+
+| Вывод | Значение |
+|---|---|
+| `VALID FINAL` | Квитанция настоящая и финализирована. Действие доказано. |
+| `NOT VALID` (или ошибка чтения) | Квитанция изменена, неполна или не финализирована. **Не доверяй.** |
+
+Проверка полностью **офлайн** — читаются только два файла. Инструмент не обращается к нашим
+серверам, поэтому подделать результат с нашей стороны нельзя.
+
+## Откуда берутся квитанции
+
+Квитанцию ты получаешь, когда заверяешь действие через TimeLayer (через наш API или
+интеграцию). Сервис возвращает два файла — `*.tlcert` и `*.tlbundle` — и **ты их скачиваешь и
+хранишь**. Они твои. Мы их у себя не держим — так задумано.
+
+(Публичная кнопка «заверить → проверить» на https://timelayer-os.com появится к запуску.)
 
 ## Где хранить квитанции
 
@@ -100,10 +167,10 @@ mkdir -p ~/timelayer-receipts
 - Делай резервную копию папки, как любого важного документа — квитанции это *твоё* доказательство.
 - Файлы можно копировать и передавать без опаски: квитанция раскрывает доказательство, а не твои секреты.
 
-## Релиз
+## Платформы
 
-Верификатор (бинарные сборки под Linux/macOS/Windows **и** полностью аудируемый релиз
-исходников) сейчас финализируется и появится здесь в ближайшее время. Следи за репозиторием.
+В этом релизе — бинарь под **Linux x86-64**. Нужен macOS или Windows? Открой issue, добавим.
+Полностью аудируемый релиз исходников верификатора запланирован.
 
 ## Лицензия
 
