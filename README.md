@@ -1,177 +1,63 @@
-# TimeLayer Verifier
+# TimeLayer — offline verifier
 
-**Check that a TimeLayer receipt is genuine — offline, on your own machine, without trusting anyone.**
+A small, self-contained tool that **verifies a TimeLayer signed receipt offline** — with no
+connection to the network — by checking its cohort signatures against the public roster of node keys.
 
-A TimeLayer receipt is proof that some action happened and hasn't been altered. The proof
-rests on an independent quorum, not on a single signature or a single server. This tool lets
-*you* verify a receipt yourself, so you never have to take our word for it.
+> **Status: test network.** TimeLayer is currently running as a test network while the mechanisms are
+> polished. This verifier checks that a receipt was signed by **≥ k distinct keys from the roster**.
+> It does **not** by itself prove the keys are held by unrelated independent operators — that comes
+> when real, independent operators run the nodes. **No "unforgeable" guarantee is claimed yet.**
 
-- Website: https://timelayer-os.com
+## What it checks
 
-> 🇷🇺 **Русская версия — ниже.** (Russian version is below.)
+A receipt commits to a 32-byte **root** = `BLAKE3(domain ‖ canonical_fields)` over the receipt's
+content (document digest, position in the causal chain, issuer, a nonce, the roster epoch, the
+replay/shadow proof digest, and the cohort ring digest). Each cohort node **signs that root** with its
+own Ed25519 key. The verifier:
 
----
+1. **recomputes the root from the content** (never trusts a root supplied in the receipt);
+2. checks **≥ k valid Ed25519 signatures** from **distinct** signers that are **active in the roster**
+   at the receipt's epoch.
 
-## What a receipt is
+This is what closes *fabrication from scratch*: anyone with the public keys and the open algorithm can
+recompute every hash, but **cannot produce k real signatures without the nodes' private keys.**
 
-A receipt is **two small files** that belong together:
+- Signatures: **Ed25519** (RFC 8032). Hash: **BLAKE3**. Serialization: explicit length-prefixed fields.
+- The algorithm is fully open on purpose (Kerckhoffs): security rests on the private keys, not secrecy.
 
-| File | What it is | Size |
-|---|---|---|
-| `something.tlcert` | the **certificate** — the compact proof | ~0.4 KB |
-| `something.tlbundle` | the **bundle** — the body the holder keeps | a few KB to tens of KB |
-
-You keep both files. To prove the action later, you hand someone the two files and they run
-the verifier. No database, no login, no trust in us.
-
----
-
-## Quick start
-
-1. Download the verifier from this repo (`bin/tl_verifier-linux-amd64`) and make it runnable:
-   ```bash
-   chmod +x tl_verifier-linux-amd64
-   ```
-2. Verify a receipt — pass its two files:
-   ```bash
-   ./tl_verifier-linux-amd64 verify your-receipt.tlcert your-receipt.tlbundle
-   ```
-3. A genuine, finalized receipt prints:
-   ```
-   VALID FINAL
-   ```
-
-That's it. `VALID FINAL` means the receipt is genuine and finalized; anything else means do not
-trust it.
-
----
-
-## What the result means
-
-| Output | Meaning |
-|---|---|
-| `VALID FINAL` | The receipt is genuine and finalized. The action is proven. |
-| `NOT VALID` (or a read error) | The receipt is altered, incomplete, or not finalized. **Do not trust it.** |
-
-Verification is fully **offline** — the tool reads only the two files. It does not call our
-servers, so the result can't be faked by us.
-
----
-
-## Where receipts come from
-
-You get a receipt whenever you notarize an action through TimeLayer (via our API or an
-integration). The service returns the two files — `*.tlcert` and `*.tlbundle` — and **you
-download and keep them**. They are yours. We don't store them for you, by design.
-
-(A public "notarize → verify" button on https://timelayer-os.com is coming with launch.)
-
----
-
-## Store your receipts
-
-A "vault" is just a folder you control:
+## Build
 
 ```bash
-mkdir -p ~/timelayer-receipts
-# save each receipt as a matching pair, named so you'll recognize it:
-#   invoice-4471.tlcert  +  invoice-4471.tlbundle
+cargo build --release
+# binary at target/release/timelayer-verifier
+# a prebuilt Linux x86-64 binary is in bin/
 ```
 
-- **Always keep the two files together** (same name, different extension).
-- Back the folder up like any important document — the receipts are *your* proof.
-- The files are safe to copy and share: a receipt reveals the proof, not your secrets.
+## Use
 
----
+```bash
+timelayer-verifier verify <receipt.tlsig> <roster.txt> <k> [by_node|by_operator]
+```
 
-## Platforms
+- `<receipt.tlsig>` — the signed receipt.
+- `<roster.txt>` — the public roster (one line per node:
+  `node_id|pubkey_hex|alg|operator|region|status|valid_from|valid_to`, with a leading `epoch=N`).
+- `<k>` — required number of distinct signers.
+- mode — `by_node` (distinct nodes) or `by_operator` (distinct operators; one operator = one vote).
 
-This release ships a **Linux x86-64** binary. Need macOS or Windows? Open an issue and we'll
-add it. A fully auditable source release of the verifier is planned.
+Exit code `0` = VALID, `1` = NOT VALID.
+
+## Test vectors (`testvectors/`)
+
+```bash
+timelayer-verifier verify testvectors/valid.tlsig  testvectors/roster.txt 6 by_operator   # -> VALID
+timelayer-verifier verify testvectors/forged.tlsig testvectors/roster.txt 6 by_operator   # -> NOT VALID
+```
+
+`forged.tlsig` is a fabricated receipt signed by keys that are **not** on the roster — the canonical
+"fabrication from scratch" attempt — and it verifies as **NOT VALID**. Regenerate with
+`timelayer-verifier testvec gen <dir>`.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
-
----
----
-
-# TimeLayer Verifier — по-русски
-
-**Проверь, что квитанция TimeLayer настоящая — офлайн, на своём компьютере, никому не доверяя.**
-
-Квитанция TimeLayer — это доказательство, что некое действие произошло и не было изменено.
-Доказательство держится на независимом кворуме, а не на одной подписи и не на одном сервере.
-Этот инструмент позволяет *тебе самому* проверить квитанцию — чтобы не верить нам на слово.
-
-- Сайт: https://timelayer-os.com
-
-## Что такое квитанция
-
-Квитанция — это **два маленьких файла**, которые идут в паре:
-
-| Файл | Что это | Размер |
-|---|---|---|
-| `что-то.tlcert` | **сертификат** — компактное доказательство | ~0,4 КБ |
-| `что-то.tlbundle` | **тело** — то, что хранит у себя владелец | от нескольких КБ до десятков КБ |
-
-Оба файла ты хранишь у себя. Чтобы потом доказать действие — отдаёшь два файла, и человек
-запускает верификатор. Без базы, без логина, без доверия к нам.
-
-## Быстрый старт
-
-1. Скачай верификатор из репозитория (`bin/tl_verifier-linux-amd64`) и сделай исполняемым:
-   ```bash
-   chmod +x tl_verifier-linux-amd64
-   ```
-2. Проверь квитанцию — передай её два файла:
-   ```bash
-   ./tl_verifier-linux-amd64 verify твоя-квитанция.tlcert твоя-квитанция.tlbundle
-   ```
-3. Настоящая и финализированная квитанция выведет:
-   ```
-   VALID FINAL
-   ```
-
-Всё. `VALID FINAL` — квитанция настоящая и финализирована; что-либо другое — не доверяй ей.
-
-## Что значит результат
-
-| Вывод | Значение |
-|---|---|
-| `VALID FINAL` | Квитанция настоящая и финализирована. Действие доказано. |
-| `NOT VALID` (или ошибка чтения) | Квитанция изменена, неполна или не финализирована. **Не доверяй.** |
-
-Проверка полностью **офлайн** — читаются только два файла. Инструмент не обращается к нашим
-серверам, поэтому подделать результат с нашей стороны нельзя.
-
-## Откуда берутся квитанции
-
-Квитанцию ты получаешь, когда заверяешь действие через TimeLayer (через наш API или
-интеграцию). Сервис возвращает два файла — `*.tlcert` и `*.tlbundle` — и **ты их скачиваешь и
-хранишь**. Они твои. Мы их у себя не держим — так задумано.
-
-(Публичная кнопка «заверить → проверить» на https://timelayer-os.com появится к запуску.)
-
-## Где хранить квитанции
-
-«Контейнер» — это просто папка, которой управляешь ты:
-
-```bash
-mkdir -p ~/timelayer-receipts
-# сохраняй каждую квитанцию парой, с понятным именем:
-#   schet-4471.tlcert  +  schet-4471.tlbundle
-```
-
-- **Всегда храни два файла вместе** (одно имя, разные расширения).
-- Делай резервную копию папки, как любого важного документа — квитанции это *твоё* доказательство.
-- Файлы можно копировать и передавать без опаски: квитанция раскрывает доказательство, а не твои секреты.
-
-## Платформы
-
-В этом релизе — бинарь под **Linux x86-64**. Нужен macOS или Windows? Открой issue, добавим.
-Полностью аудируемый релиз исходников верификатора запланирован.
-
-## Лицензия
-
-MIT — см. [LICENSE](LICENSE).
+MIT — see `LICENSE`.

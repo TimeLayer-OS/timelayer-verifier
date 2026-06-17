@@ -1,0 +1,15 @@
+[package]
+name = "timelayer-verifier"
+version = "1.0.0"
+edition = "2021"
+description = "Offline verifier for TimeLayer signed receipts (.tlsig) — checks cohort Ed25519 signatures against the public roster"
+license = "MIT"
+
+[dependencies]
+blake3 = "1.5"
+ed25519-dalek = "2"
+getrandom = "0.2"
+
+[[bin]]
+name = "timelayer-verifier"
+path = "src/main.rs"
