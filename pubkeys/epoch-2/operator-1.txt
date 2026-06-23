@@ -1,4 +1,4 @@
-# TimeLayer — public signing keys for operator: sasha
+# TimeLayer — public signing keys for operator-1
 # Epoch: 2  |  Quorum: by_operator, k=2 (any 2 of 3 operators)
 # These keys are referenced in pubkeys/epoch-2/roster.txt
 

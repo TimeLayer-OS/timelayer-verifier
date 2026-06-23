@@ -3,9 +3,9 @@
 A small, self-contained tool that **verifies a TimeLayer signed receipt offline** — with no
 connection to the network — by checking its cohort signatures against the public roster of node keys.
 
-> **Status: test network, epoch 2.** TimeLayer is running as a test network while the mechanisms are
-> polished. Current roster: 11 nodes, 3 operators (sasha / katerina / vlad), quorum = any 2 of 3
-> operators (`by_operator`, k=2). See `pubkeys/epoch-2/` for the full roster and per-operator keys.
+> **Status: live network, epoch 2.** Current roster: 11 nodes, 3 independent operators,
+> quorum = any 2 of 3 operators (`by_operator`, k=2).
+> See `pubkeys/epoch-2/` for the full roster and per-operator keys.
 >
 > This verifier checks that a receipt was signed by **≥ k distinct operators from the roster**.
 > It does **not** by itself prove the keys are held by unrelated independent operators — that comes
@@ -66,11 +66,11 @@ timelayer-verifier verify testvectors/forged.tlsig testvectors/roster.txt 6 by_o
 The current network roster (epoch 2, `by_operator`, k=2) is in `pubkeys/epoch-2/roster.txt`.
 Per-operator key files:
 
-| File | Operator | Nodes |
-|------|----------|-------|
-| `pubkeys/epoch-2/operator-sasha.txt` | sasha | tl-0 (DE), tl-1 (DE), tl-9 (AT) |
-| `pubkeys/epoch-2/operator-katerina.txt` | katerina | tl-2 (SG), tl-3 (US), tl-4 (US), tl-7 (US), tl-10 (Mac) |
-| `pubkeys/epoch-2/operator-vlad.txt` | vlad | tl-5 (FI), tl-6 (DE), tl-8 (SG) |
+| File | Nodes |
+|------|-------|
+| `pubkeys/epoch-2/operator-1.txt` | tl-0 (DE), tl-1 (DE), tl-9 (AT) |
+| `pubkeys/epoch-2/operator-2.txt` | tl-2 (SG), tl-3 (US), tl-4 (US), tl-7 (US), tl-10 (Mac) |
+| `pubkeys/epoch-2/operator-3.txt` | tl-5 (FI), tl-6 (DE), tl-8 (SG) |
 
 To verify an epoch-2 receipt:
 
