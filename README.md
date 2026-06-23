@@ -28,12 +28,29 @@ recompute every hash, but **cannot produce k real signatures without the nodes' 
 - Signatures: **Ed25519** (RFC 8032). Hash: **BLAKE3**. Serialization: explicit length-prefixed fields.
 - The algorithm is fully open on purpose (Kerckhoffs): security rests on the private keys, not secrecy.
 
-## Build
+## Download
+
+Pre-built binaries are published on the [Releases page](https://github.com/TimeLayer-OS/timelayer-verifier/releases/latest):
+
+| Platform | File |
+|----------|------|
+| Linux x86-64 | `timelayer-verifier-linux-amd64` |
+| macOS Apple Silicon (M1/M2/M3) | `timelayer-verifier-macos-arm64` |
+| macOS Intel | `timelayer-verifier-macos-x86_64` |
+| Windows x86-64 | `timelayer-verifier-windows-amd64.exe` |
+
+**macOS / Linux — make executable after download:**
+```bash
+chmod +x timelayer-verifier-*
+```
+
+**macOS — first run**: right-click the binary → Open → Open (to bypass Gatekeeper on unsigned binaries).
+
+## Build from source
 
 ```bash
 cargo build --release
 # binary at target/release/timelayer-verifier
-# a prebuilt Linux x86-64 binary is in bin/
 ```
 
 ## Use
