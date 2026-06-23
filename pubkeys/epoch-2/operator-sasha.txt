@@ -1,0 +1,7 @@
+# TimeLayer — public signing keys for operator: sasha
+# Epoch: 2  |  Quorum: by_operator, k=2 (any 2 of 3 operators)
+# These keys are referenced in pubkeys/epoch-2/roster.txt
+
+tl-0  DE/web4     59adf23eabc8bc460a2dbd7bf821cf546363c7ff57445e297fd30127abc30f7f
+tl-1  DE/liq      7803e5dd722bc11f767d0fe4495d3f63a50955dcfe095ead7aa620b92e0b5685
+tl-9  AT/vienna   8bb402e2e69f8c90b513ba28ba1e5caf7995538291d4c0baadbc433e94ed489e

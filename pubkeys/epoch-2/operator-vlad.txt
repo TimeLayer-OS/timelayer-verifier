@@ -1,0 +1,7 @@
+# TimeLayer — public signing keys for operator: vlad
+# Epoch: 2  |  Quorum: by_operator, k=2 (any 2 of 3 operators)
+# These keys are referenced in pubkeys/epoch-2/roster.txt
+
+tl-5  FI/helsinki   5c2dd7ac48c89749dc6a8b74a4fd68ac52f2ad5e2938bd359c7b5b3addec6558
+tl-6  DE/nuremberg  213f39de079fdfb9f1c70608e6aeb7b9caf9b86e99a5c59300b1012ce3f957e9
+tl-8  SG/singapore  031dc629125e98f5d5a4ac9535cde1a896c221a455242301cf493935b5f4f8df
