@@ -35,7 +35,6 @@ Pre-built binaries are published on the [Releases page](https://github.com/TimeL
 |----------|------|
 | Linux x86-64 | `timelayer-verifier-linux-amd64` |
 | macOS Apple Silicon (M1/M2/M3) | `timelayer-verifier-macos-arm64` |
-| macOS Intel | `timelayer-verifier-macos-x86_64` |
 | Windows x86-64 | `timelayer-verifier-windows-amd64.exe` |
 
 **macOS / Linux — make executable after download:**
