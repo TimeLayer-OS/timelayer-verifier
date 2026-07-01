@@ -9,7 +9,7 @@ needed to check it; the verifier recomputes every hash and checks the signatures
 ```
 timelayer-verifier verify cert.tlcert bundle.tlbundle
 # -> VALID FINAL        (exit 0)  authentic and complete
-# -> UNVERIFIABLE       (exit 1)  the pair does not verify
+# -> NOT VALID / UNVERIFIABLE (exit 1)  forged, divergent, or undecodable
 ```
 
 > **Status: live network.** Each receipt is signed by an **Ed25519 quorum of independent
@@ -30,7 +30,7 @@ evidence). The verifier:
 3. confirms the receipt is **FINAL** (complete, not a partial/intermediate state).
 
 If everything lines up it prints `VALID FINAL`. Any mismatch — a flipped byte, a missing
-signature, a fabricated cert — prints `UNVERIFIABLE` and exits non-zero.
+signature, a fabricated cert — prints `NOT VALID` (or `UNVERIFIABLE` for undecodable input) and exits non-zero.
 
 - Signatures: **Ed25519** (RFC 8032). Hash: **BLAKE3**. Serialization: explicit length-prefixed fields.
 - **Offline and self-contained:** no roster file, no network call, no key server. You can pull the
@@ -70,17 +70,18 @@ exactly what you can read and compile.
 timelayer-verifier verify <cert.tlcert> <bundle.tlbundle>
 ```
 
-Exit code `0` = `VALID FINAL`, `1` = `UNVERIFIABLE`.
+Exit code `0` = `VALID FINAL`, `1` = `NOT VALID` / `UNVERIFIABLE`.
 
 ## Test vectors (`testvectors/`)
 
 ```bash
 timelayer-verifier verify testvectors/valid/cert.tlcert  testvectors/valid/bundle.tlbundle   # -> VALID FINAL
-timelayer-verifier verify testvectors/forged/cert.tlcert testvectors/forged/bundle.tlbundle  # -> UNVERIFIABLE
+timelayer-verifier verify testvectors/forged/cert.tlcert testvectors/forged/bundle.tlbundle  # -> NOT VALID
 ```
 
-`forged/` is a real receipt with a single byte flipped in the bundle — the canonical tampering
-attempt — and it verifies as **UNVERIFIABLE**.
+`forged/` pairs the cert of one real signed receipt with the bundle of another — a decodable
+but divergent transplant, the canonical forgery attempt — and it verifies as **NOT VALID**.
+Both vectors are real `tlbundle/2` receipts minted by the live network.
 
 ## Operator key transparency (`pubkeys/`)
 

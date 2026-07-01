@@ -2,37 +2,37 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+use tl_cohort_sig::proof::QuorumMode;
+use tl_cohort_sig::roster::{parse_roster, Roster};
 use tl_digest::digest_bytes;
 use tl_finality::{decode_tlcert, interval_ref_from_digests};
 use tl_receipts::ReceiptStatus;
-use tl_verify_public::{verify_bytes, PublicVerdict};
+use tl_verify_authn::verify_bytes_with_roster;
+use tl_verify_public::PublicVerdict;
+
 
 const MAX_CERT_BYTES: u64 = 1024 * 1024;
 const MAX_BUNDLE_BYTES: u64 = 16 * 1024 * 1024;
 
-fn usage() -> i32 {
-    eprintln!(
-        "timelayer-verifier {}\n\
-         \n\
-         Offline verifier for TimeLayer receipts. No network, no roster lookup:\n\
-         a receipt is a self-contained pair of files and verifies on its own.\n\
-         \n\
-         USAGE:\n    \
-             timelayer-verifier verify <cert.tlcert> <bundle.tlbundle> [--expect <hex>]\n    \
-             timelayer-verifier --version\n\
-         \n\
-         --expect <hex> binds the check to a document digest: the receipt must notarize\n    \
-             exactly this hex-encoded action digest, or the result is UNVERIFIABLE (exit 1).\n\
-         \n\
-         OUTPUT:\n    \
-             VALID FINAL     the receipt is authentic and complete (exit 0)\n    \
-             UNVERIFIABLE    the pair does not verify (exit 1)",
-        env!("CARGO_PKG_VERSION")
-    );
-    1
+/// The deployed cohort trust anchor, compiled into the binary so offline
+/// verification needs no external files. This mirrors the network's published
+/// roster.txt; the quorum policy (k and mode) below matches the live node config.
+const EMBEDDED_ROSTER: &str = include_str!("roster_epoch2.txt");
+/// Live quorum threshold (k) — confirmed from the running node config.
+const QUORUM_K: usize = 2;
+
+/// Parse the compiled-in roster. Infallible in practice (the asset is a fixed,
+/// in-tree file validated at build/test time); we surface a clear message if a
+/// future edit breaks its format rather than silently accepting nothing.
+fn embedded_roster() -> Option<Roster> {
+    parse_roster(EMBEDDED_ROSTER)
 }
 
-fn run(args: &[String]) -> i32 {
+#[derive(Clone, Debug, Default)]
+pub struct VerifierCli;
+
+
+pub fn run_verifier(args: &[String]) -> i32 {
     match args.get(1).map(String::as_str) {
         Some("verify") if args.len() == 4 => {
             verify_files(Path::new(&args[2]), Path::new(&args[3]), None)
@@ -40,29 +40,13 @@ fn run(args: &[String]) -> i32 {
         Some("verify") if args.len() == 6 && args[4] == "--expect" => {
             verify_files(Path::new(&args[2]), Path::new(&args[3]), Some(&args[5]))
         }
-        Some("--version") | Some("-V") => {
-            println!("timelayer-verifier {}", env!("CARGO_PKG_VERSION"));
-            0
+        _ => {
+            eprintln!(
+                "usage: timelayer-verifier verify <cert.tlcert> <bundle.tlbundle> [--expect <hex-digest>]"
+            );
+            1
         }
-        _ => usage(),
     }
-}
-
-/// Decode a lowercase/uppercase hex string into bytes; None on any non-hex input.
-fn hex_to_bytes(value: &str) -> Option<Vec<u8>> {
-    if value.len() % 2 != 0 {
-        return None;
-    }
-    let bytes = value.as_bytes();
-    let mut out = Vec::with_capacity(value.len() / 2);
-    let mut idx = 0;
-    while idx < bytes.len() {
-        let hi = (bytes[idx] as char).to_digit(16)?;
-        let lo = (bytes[idx + 1] as char).to_digit(16)?;
-        out.push(((hi << 4) | lo) as u8);
-        idx += 2;
-    }
-    Some(out)
 }
 
 /// Confirm the certificate actually notarizes `expected` (the raw document digest the
@@ -79,6 +63,23 @@ fn cert_attests(cert: &[u8], expected: &[u8]) -> bool {
     interval_ref_from_digests(&[digest_bytes(&material)]) == decoded.interval_ref
 }
 
+/// Decode a hex string into bytes; None on any non-hex input or odd length.
+fn parse_expect_hex(value: &str) -> Option<Vec<u8>> {
+    if value.len() % 2 != 0 {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(value.len() / 2);
+    let mut idx = 0;
+    while idx < bytes.len() {
+        let hi = (bytes[idx] as char).to_digit(16)?;
+        let lo = (bytes[idx + 1] as char).to_digit(16)?;
+        out.push(((hi << 4) | lo) as u8);
+        idx += 2;
+    }
+    Some(out)
+}
+
 fn read_or_report(path: &Path, max_bytes: u64) -> Option<Vec<u8>> {
     match read_limited(path, max_bytes) {
         Ok(bytes) => Some(bytes),
@@ -90,16 +91,42 @@ fn read_or_report(path: &Path, max_bytes: u64) -> Option<Vec<u8>> {
 }
 
 fn verify_files(cert_path: &Path, bundle_path: &Path, expect_hex: Option<&str>) -> i32 {
+    let Some(roster) = embedded_roster() else {
+        eprintln!("UNVERIFIABLE embedded roster is malformed");
+        return 1;
+    };
+    verify_files_with_policy(
+        cert_path,
+        bundle_path,
+        expect_hex,
+        &roster,
+        QUORUM_K,
+        QuorumMode::ByOperator,
+    )
+}
+
+/// Core of the offline verify command, parameterized by the quorum policy
+/// (roster + k + mode). Production wiring passes the compiled-in trust anchor;
+/// the binary integration tests pass a controlled test roster so the honest
+/// path can be exercised end-to-end without the operators' private keys.
+fn verify_files_with_policy(
+    cert_path: &Path,
+    bundle_path: &Path,
+    expect_hex: Option<&str>,
+    roster: &Roster,
+    k: usize,
+    mode: QuorumMode,
+) -> i32 {
     let Some(cert) = read_or_report(cert_path, MAX_CERT_BYTES) else {
         return 1;
     };
     let Some(bundle) = read_or_report(bundle_path, MAX_BUNDLE_BYTES) else {
         return 1;
     };
-    match verify_bytes(&cert, Some(&bundle)) {
+    match verify_bytes_with_roster(&cert, Some(&bundle), roster, k, mode) {
         PublicVerdict::VALID(ReceiptStatus::FINAL) => {
             if let Some(hex) = expect_hex {
-                let Some(expected) = hex_to_bytes(hex) else {
+                let Some(expected) = parse_expect_hex(hex) else {
                     eprintln!("UNVERIFIABLE --expect must be a hex digest");
                     return 1;
                 };
@@ -112,11 +139,24 @@ fn verify_files(cert_path: &Path, bundle_path: &Path, expect_hex: Option<&str>) 
             0
         }
         _ => {
-            println!("UNVERIFIABLE");
+            eprintln!("NOT VALID");
             1
         }
     }
 }
+
+/// Offline verification proves the presented history is internally consistent
+/// and reproducible. The online cross-check (compiled only into the internal
+/// `live` build) is not part of the public offline tool.
+
+
+
+
+
+
+
+
+
 
 fn read_limited(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
@@ -140,5 +180,276 @@ fn read_limited(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    std::process::exit(run(&args));
+    let code = run_verifier(&args);
+    std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    //! End-to-end proof of the authenticity gate through the binary's real verify
+    //! codepath (`verify_files_with_policy`). We mint a structurally valid cert+bundle
+    //! and sign it with a CONTROLLED test roster (the live roster's private keys are
+    //! held by the operators and are deliberately not here), then assert:
+    //!   honest quorum            -> exit 0 (VALID FINAL)
+    //!   fabricated (wrong keys)  -> exit 1 (NOT VALID)
+    //!   transplanted signature   -> exit 1 (NOT VALID)
+    //!   below threshold          -> exit 1 (NOT VALID)
+    //!   unsigned (current format)-> exit 1 (NOT VALID)
+    //! Plus a check that the compiled-in production roster parses to the live policy.
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use tl_canon_types::{CanonBytes, CohortId, IntervalId, NodeId, Tick};
+    use tl_cohort::{CohortProof, QuorumThreshold};
+    use tl_cohort_sig::proof::CohortSig;
+    use tl_cohort_sig::receipt::SignedReceipt;
+    use tl_cohort_sig::roster::{NodeStatus, RosterEntry};
+    use tl_cohort_sig::{
+        core_fields_from_interval, keygen, sign_root, IntervalInputs, ALG_ED25519,
+    };
+    use tl_digest::Digest;
+    use tl_finality::{
+        encode_tlbundle, encode_tlcert, export_bundle, export_certificate, interval_history_fragment,
+        tlcert_integrity_stamp, CohortWitness, FinalFact, FinalizationInterval,
+    };
+    use tl_shadow::{run_shadow, ShadowExec, ShadowMode};
+
+    const EPOCH: u64 = 2;
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+
+    // Who signs the minted receipt.
+    enum Sign<'a> {
+        Honest,                // k=2 distinct roster operators -> valid
+        OneOnly,               // 1 signer -> below by_operator k=2
+        Attacker,              // 2 sigs from keys NOT in the roster
+        Custom(&'a [u8]),      // paste a foreign signed_receipt blob (transplant)
+        Unsigned,              // empty signed_receipt (the pre-fix format)
+    }
+
+    struct Minted {
+        cert_path: std::path::PathBuf,
+        bundle_path: std::path::PathBuf,
+        signed_receipt: Vec<u8>,
+    }
+
+    fn unique_dir(tag: &str) -> std::path::PathBuf {
+        let n = SEQ.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("tlv_{}_{}_{}", tag, std::process::id(), n));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // A roster of 3 distinct-operator nodes (by_operator-ready). Returns seeds + roster.
+    fn test_roster() -> (Vec<[u8; 32]>, Roster) {
+        let mut seeds = Vec::new();
+        let mut entries = Vec::new();
+        for i in 0..3 {
+            let (seed, pk) = keygen().unwrap();
+            seeds.push(seed);
+            entries.push(RosterEntry {
+                node_id: format!("tl-{}", i),
+                pubkey: pk,
+                alg: ALG_ED25519,
+                operator: format!("op-{}", i),
+                region: "EU".into(),
+                status: NodeStatus::Active,
+                valid_from: 0,
+                valid_to: None,
+            });
+        }
+        (seeds, Roster { epoch: EPOCH, entries })
+    }
+
+    // Mint a structurally valid cert+bundle for `content`, signed per `sign`.
+    fn mint(tag: &str, content: &[u8], seeds: &[[u8; 32]], sign: Sign) -> Minted {
+        let peers: Vec<NodeId> = (0..3).map(|i| NodeId(format!("tl-{}", i))).collect();
+        let peer_strs: Vec<String> = peers.iter().map(|p| p.0.clone()).collect();
+        let ring_indices: Vec<u64> = vec![0, 1, 2];
+        let peer_new_digests: Vec<Digest> = vec![Digest([10; 32]), Digest([11; 32]), Digest([12; 32])];
+        let pnd_raw: Vec<[u8; 32]> = peer_new_digests.iter().map(|d| d.0).collect();
+        let replay_params = CanonBytes(b"rp".to_vec());
+
+        // History fragment uniquely seeded by `content` so different content => a
+        // different local_digest (and so a different signed root). This is what makes
+        // a transplant detectable.
+        let seed_digest = digest_bytes(content);
+        let hf = interval_history_fragment(&[seed_digest]);
+        let local = Digest::from(tl_rw_core::replay_fragment(&hf).unwrap());
+        let shadow_raw = run_shadow(&ShadowExec { mode: ShadowMode::PS }, &hf)
+            .unwrap()
+            .shadow_digest
+            .0;
+        let shadow = Digest::from(shadow_raw);
+
+        let issued_at_pos = 7u64;
+        let cohort_id = CohortId("trial".into());
+
+        // CoreFields bound to exactly this content (mirrors what the node signs and
+        // what tl_verify_authn::signature_check rebinds against).
+        let mut nonce = [0u8; 16];
+        nonce.copy_from_slice(&local.0[..16]);
+        let core = core_fields_from_interval(&IntervalInputs {
+            interval_ref: local.0,
+            prev_interval_ref: [0; 32],
+            cohort_id: &cohort_id.0,
+            issued_at_pos,
+            issuer_node_id: &peer_strs[0],
+            nonce,
+            roster_epoch: EPOCH,
+            local_digest: local.0,
+            shadow_digest: shadow.0,
+            replay_params: replay_params.as_slice(),
+            peers: &peer_strs,
+            ring_indices: &ring_indices,
+            peer_new_digests: &pnd_raw,
+        });
+        let root = core.root();
+
+        let signed_receipt = match sign {
+            Sign::Unsigned => Vec::new(),
+            Sign::Custom(bytes) => bytes.to_vec(),
+            Sign::Honest | Sign::OneOnly => {
+                let who: &[usize] = if matches!(sign, Sign::Honest) { &[0, 1] } else { &[0] };
+                let proof: Vec<CohortSig> = who
+                    .iter()
+                    .map(|&i| CohortSig {
+                        node_id: format!("tl-{}", i),
+                        alg: ALG_ED25519,
+                        sig: sign_root(&seeds[i], &root),
+                    })
+                    .collect();
+                SignedReceipt { core: core.clone(), cohort_proof: proof }.encode()
+            }
+            Sign::Attacker => {
+                let mut proof = Vec::new();
+                for i in 0..2 {
+                    let (atk, _) = keygen().unwrap(); // not in the roster
+                    proof.push(CohortSig {
+                        node_id: format!("tl-{}", i),
+                        alg: ALG_ED25519,
+                        sig: sign_root(&atk, &root),
+                    });
+                }
+                SignedReceipt { core: core.clone(), cohort_proof: proof }.encode()
+            }
+        };
+
+        let cohort_proof = CohortProof {
+            cohort_id: cohort_id.clone(),
+            interval_id: IntervalId(1),
+            member_ids: peers.clone(),
+            witness_digests: vec![],
+            ring_indices: ring_indices.clone(),
+            peer_new_digests: peer_new_digests.clone(),
+            threshold: QuorumThreshold(2),
+            proof_digest: Default::default(),
+        };
+        let fact = FinalFact {
+            local_digest: local.into(),
+            shadow_digest: shadow.into(),
+            proof_of_replay: shadow.into(),
+            cohort_proof,
+            integrity_stamp: Digest::default(),
+            issued_at_pos,
+            replay_params: replay_params.clone(),
+        };
+        let interval = FinalizationInterval {
+            interval_id: IntervalId(1),
+            start: Tick(0),
+            end: Tick(issued_at_pos),
+            interval_ref: local, // export_certificate sets cert.interval_ref = local too
+            history_fragment: hf,
+            replay_params: replay_params.clone(),
+            cohort_witness: CohortWitness {
+                peers,
+                ring_indices,
+                peer_new_digests,
+            },
+            signed_receipt: signed_receipt.clone(),
+        };
+
+        // Same composition the node runtime uses (export_certificate_bundle).
+        let bundle = export_bundle(interval);
+        let mut cert = export_certificate(fact);
+        cert.bundle_ref = Some(bundle.bundle_digest);
+        cert.integrity_stamp = tlcert_integrity_stamp(&cert);
+
+        // Allow dumping fixtures to a stable path so the literal CLI binary can be
+        // driven against them (test-only; no effect on the shipped binary).
+        let dir = match std::env::var("TLV_DUMP") {
+            Ok(base) => {
+                let d = std::path::PathBuf::from(base).join(tag);
+                fs::create_dir_all(&d).unwrap();
+                d
+            }
+            Err(_) => unique_dir(tag),
+        };
+        let cert_path = dir.join("cert.tlcert");
+        let bundle_path = dir.join("bundle.tlbundle");
+        fs::write(&cert_path, encode_tlcert(&cert)).unwrap();
+        fs::write(&bundle_path, encode_tlbundle(&bundle)).unwrap();
+        Minted { cert_path, bundle_path, signed_receipt }
+    }
+
+    fn run(m: &Minted, roster: &Roster) -> i32 {
+        verify_files_with_policy(
+            &m.cert_path,
+            &m.bundle_path,
+            None,
+            roster,
+            QUORUM_K,
+            QuorumMode::ByOperator,
+        )
+    }
+
+    #[test]
+    fn honest_quorum_is_valid_final() {
+        let (seeds, roster) = test_roster();
+        let m = mint("honest", b"doc-A", &seeds, Sign::Honest);
+        assert_eq!(run(&m, &roster), 0, "honest k-of-n quorum must verify");
+    }
+
+    #[test]
+    fn unsigned_receipt_is_not_valid() {
+        // The pre-fix bundle format (empty attestation) must now be rejected: this is
+        // the exact vulnerability being closed — hash-consistent but not authenticated.
+        let (seeds, roster) = test_roster();
+        let m = mint("unsigned", b"doc-A", &seeds, Sign::Unsigned);
+        assert_eq!(run(&m, &roster), 1, "unsigned receipt must NOT be valid");
+    }
+
+    #[test]
+    fn fabricated_signatures_are_not_valid() {
+        let (seeds, roster) = test_roster();
+        let m = mint("fabricated", b"doc-A", &seeds, Sign::Attacker);
+        assert_eq!(run(&m, &roster), 1, "non-roster keys must NOT be valid");
+    }
+
+    #[test]
+    fn below_threshold_is_not_valid() {
+        let (seeds, roster) = test_roster();
+        let m = mint("below", b"doc-A", &seeds, Sign::OneOnly);
+        assert_eq!(run(&m, &roster), 1, "one signer (< k=2) must NOT be valid");
+    }
+
+    #[test]
+    fn transplanted_signature_is_not_valid() {
+        // A genuine signature for doc-A, pasted into a receipt for doc-B.
+        let (seeds, roster) = test_roster();
+        let honest_a = mint("transplant_src", b"doc-A", &seeds, Sign::Honest);
+        let m = mint("transplant_dst", b"doc-B", &seeds, Sign::Custom(&honest_a.signed_receipt));
+        assert_eq!(run(&m, &roster), 1, "signature bound to other content must NOT be valid");
+    }
+
+    #[test]
+    fn embedded_production_roster_matches_live_policy() {
+        let roster = embedded_roster().expect("compiled-in roster must parse");
+        assert_eq!(roster.epoch, 2, "live roster epoch");
+        assert_eq!(roster.entries.len(), 11, "11 live nodes tl-0..tl-10");
+        assert_eq!(QUORUM_K, 2, "live quorum_threshold");
+        let mut ops: Vec<String> = roster.entries.iter().map(|e| e.operator.clone()).collect();
+        ops.sort();
+        ops.dedup();
+        assert_eq!(ops, vec!["operator-1", "operator-2", "operator-3"], "anonymized operator set (public roster)");
+    }
 }

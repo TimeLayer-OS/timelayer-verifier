@@ -1,0 +1,12 @@
+epoch=2
+tl-0|59adf23eabc8bc460a2dbd7bf821cf546363c7ff57445e297fd30127abc30f7f|1|operator-1|DE/web4|active|0|-
+tl-1|7803e5dd722bc11f767d0fe4495d3f63a50955dcfe095ead7aa620b92e0b5685|1|operator-1|DE/liq|active|0|-
+tl-2|47be745109a09153c1780ebcc6740d2c25e3707cc06d8fb2436eb922911e4ab6|1|operator-2|SG/asia|active|0|-
+tl-3|e7968c6182251b9f41354f555346632b47950f5b273e7240b2e455eb9777a9cf|1|operator-2|US/west|active|0|-
+tl-4|d0f472f0249c7ae3aac62fdc8b50047325274438e1f521f13553b81cd1759646|1|operator-2|US/east|active|0|-
+tl-5|5c2dd7ac48c89749dc6a8b74a4fd68ac52f2ad5e2938bd359c7b5b3addec6558|1|operator-3|FI/helsinki|active|0|-
+tl-6|213f39de079fdfb9f1c70608e6aeb7b9caf9b86e99a5c59300b1012ce3f957e9|1|operator-3|DE/nuremberg|active|0|-
+tl-7|e8bca7e9d1e4cc8e765c47474678ca283c13a5b2afd816dabc433a00c0a80d1a|1|operator-2|US/manesas|active|0|-
+tl-8|031dc629125e98f5d5a4ac9535cde1a896c221a455242301cf493935b5f4f8df|1|operator-3|SG/singapore|active|0|-
+tl-9|8bb402e2e69f8c90b513ba28ba1e5caf7995538291d4c0baadbc433e94ed489e|1|operator-1|AT/vienna|active|0|-
+tl-10|35cdb90f9aff3822a00259e7d20d04c10453be72a8075db624529b5e6b1cf790|1|operator-2|Home/mac|active|0|-

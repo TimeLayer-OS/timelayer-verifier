@@ -9,7 +9,7 @@
 ```
 timelayer-verifier verify cert.tlcert bundle.tlbundle
 # -> VALID FINAL        (exit 0)  подлинна и полна
-# -> UNVERIFIABLE       (exit 1)  пара не проходит проверку
+# -> NOT VALID / UNVERIFIABLE (exit 1)  подделка, расхождение или нечитаемый ввод
 ```
 
 > **Статус: сеть в строю.** Каждая квитанция подписана **кворумом независимых операторов на
@@ -30,7 +30,7 @@ timelayer-verifier verify cert.tlcert bundle.tlbundle
 3. подтверждает, что квитанция **FINAL** (полна, а не частичное/промежуточное состояние).
 
 Если всё сходится — печатает `VALID FINAL`. Любое расхождение — перевёрнутый байт, отсутствующая
-подпись, поддельный сертификат — печатает `UNVERIFIABLE` и завершается с ненулевым кодом.
+подпись, поддельный сертификат — печатает `NOT VALID` (или `UNVERIFIABLE` для нечитаемого ввода) и завершается с ненулевым кодом.
 
 - Подписи: **Ed25519** (RFC 8032). Хеш: **BLAKE3**. Сериализация: явные поля с префиксом длины.
 - **Офлайн и самодостаточен:** ни файла реестра, ни сетевого вызова, ни сервера ключей. Можно
@@ -70,17 +70,18 @@ cargo build --release
 timelayer-verifier verify <cert.tlcert> <bundle.tlbundle>
 ```
 
-Код выхода `0` = `VALID FINAL`, `1` = `UNVERIFIABLE`.
+Код выхода `0` = `VALID FINAL`, `1` = `NOT VALID` / `UNVERIFIABLE`.
 
 ## Тест-векторы (`testvectors/`)
 
 ```bash
 timelayer-verifier verify testvectors/valid/cert.tlcert  testvectors/valid/bundle.tlbundle   # -> VALID FINAL
-timelayer-verifier verify testvectors/forged/cert.tlcert testvectors/forged/bundle.tlbundle  # -> UNVERIFIABLE
+timelayer-verifier verify testvectors/forged/cert.tlcert testvectors/forged/bundle.tlbundle  # -> NOT VALID
 ```
 
-`forged/` — это настоящая квитанция с одним перевёрнутым байтом в бандле (каноническая попытка
-подмены) — и она проходит как **UNVERIFIABLE**.
+`forged/` — это cert одной настоящей подписанной квитанции в паре с bundle другой: читаемая,
+но расходящаяся «трансплантация», каноническая попытка подделки — и она отбивается как **NOT VALID**.
+Оба вектора — настоящие квитанции `tlbundle/2`, отчеканенные живой сетью.
 
 ## Прозрачность ключей операторов (`pubkeys/`)
 

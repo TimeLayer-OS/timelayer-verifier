@@ -11,12 +11,14 @@ members = [
     "crates/tl_finality",
     "crates/tl_invariants",
     "crates/tl_verify_public",
+    "crates/tl_cohort_sig",
+    "crates/tl_verify_authn",
     "crates/bins/tl_verifier",
 ]
 
 [workspace.package]
 edition = "2021"
-version = "1.4.0"
+version = "2.0.0"
 license = "Apache-2.0"
 publish = false
 
@@ -34,6 +36,8 @@ tl_receipts = { path = "crates/tl_receipts" }
 tl_finality = { path = "crates/tl_finality" }
 tl_invariants = { path = "crates/tl_invariants" }
 tl_verify_public = { path = "crates/tl_verify_public" }
+tl_cohort_sig = { path = "crates/tl_cohort_sig" }
+tl_verify_authn = { path = "crates/tl_verify_authn" }
 
 [profile.release]
 opt-level = "z"
