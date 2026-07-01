@@ -8,8 +8,14 @@ use tl_receipts::{promote_to_final, ReceiptError, ReceiptStatus, RwReceipt};
 use tl_rw_core::{decode_history_fragment, encode_history_fragment, HistoryFragment, RwCoreError};
 
 pub const TLCERT_SCHEMA: &str = "tlcert/1";
-pub const TLBUNDLE_SCHEMA: &str = "tlbundle/1";
+/// `tlbundle/2` carries the Phase-1 signed receipt (cohort Ed25519 signatures over
+/// the content root) inline; `tlbundle/1` (hash-only, no signatures) is no longer
+/// emitted and is rejected by the verifier — a signed receipt is mandatory.
+pub const TLBUNDLE_SCHEMA: &str = "tlbundle/2";
 const MAX_COHORT_VECTOR_ITEMS: u64 = 1024;
+/// Upper bound on the embedded signed-receipt blob (defensive decode cap). The real
+/// receipt is a few hundred bytes per signer; 64 KiB covers any realistic cohort.
+const MAX_SIGNED_RECEIPT_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FinalFact {
@@ -39,6 +45,13 @@ pub struct FinalizationInterval {
     pub history_fragment: HistoryFragment,
     pub replay_params: CanonBytes,
     pub cohort_witness: CohortWitness,
+    /// Opaque Phase-1 cohort attestation bytes, carried verbatim into the exported
+    /// bundle and covered by its `bundle_digest`. Layer A treats these as an opaque
+    /// blob and never interprets them; the crypto meaning (a cohort `SignedReceipt`)
+    /// lives entirely in the authenticity layer above. Empty until the cohort
+    /// attestation round completes; an empty value yields a bundle the public
+    /// verifier rejects.
+    pub signed_receipt: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +95,13 @@ pub struct TLBundle {
     pub history_fragment: HistoryFragment,
     pub replay_params: CanonBytes,
     pub cohort_witness: CohortWitness,
+    /// Opaque Phase-1 cohort attestation bytes (the canonical `SignedReceipt` blob
+    /// produced by `tl_cohort_sig::receipt::SignedReceipt::encode()`). Layer A carries
+    /// it verbatim and never interprets it; the authenticity layer above decodes and
+    /// checks it. Covered by `bundle_digest` (and therefore by the cert's
+    /// `bundle_ref`/`integrity_stamp`), so the attestation is bound to exactly this
+    /// receipt. Empty only on an unattested bundle, which the verifier rejects.
+    pub signed_receipt: Vec<u8>,
     pub bundle_digest: Digest,
 }
 
@@ -249,6 +269,7 @@ pub fn export_bundle(interval: FinalizationInterval) -> TLBundle {
         history_fragment: interval.history_fragment,
         replay_params: interval.replay_params,
         cohort_witness: interval.cohort_witness,
+        signed_receipt: interval.signed_receipt,
         bundle_digest: Digest::default(),
     };
     bundle.bundle_digest = digest_bytes(tlbundle_body_bytes(&bundle).as_slice());
@@ -401,6 +422,10 @@ pub fn decode_tlbundle(bytes: &[u8]) -> Result<TLBundle, FinalityError> {
         ring_indices: read_u64_vec(&mut reader)?,
         peer_new_digests: read_digest_vec(&mut reader)?,
     };
+    let signed_receipt = reader.read_bytes()?;
+    if signed_receipt.len() > MAX_SIGNED_RECEIPT_BYTES {
+        return Err(FinalityError::Canon(CanonError::LengthOverflow));
+    }
     reader.finish()?;
     Ok(TLBundle {
         schema,
@@ -408,6 +433,7 @@ pub fn decode_tlbundle(bytes: &[u8]) -> Result<TLBundle, FinalityError> {
         history_fragment,
         replay_params,
         cohort_witness,
+        signed_receipt,
         bundle_digest,
     })
 }
@@ -422,6 +448,7 @@ pub fn tlbundle_body_bytes(bundle: &TLBundle) -> CanonBytes {
     push_node_vec(&mut writer, &bundle.cohort_witness.peers);
     push_u64_vec(&mut writer, &bundle.cohort_witness.ring_indices);
     push_digest_vec(&mut writer, &bundle.cohort_witness.peer_new_digests);
+    writer.push_bytes(&bundle.signed_receipt);
     writer.finish()
 }
 
@@ -612,9 +639,39 @@ mod tests {
                 ring_indices: vec![1, 1],
                 peer_new_digests: vec![Digest([2; 32]), Digest([3; 32])],
             },
+            signed_receipt: b"sig-bytes".to_vec(),
         };
         let mut bytes = encode_tlbundle(&export_bundle(interval));
         bytes[5] ^= 1;
         assert!(decode_tlbundle(&bytes).is_err());
+    }
+
+    #[test]
+    fn bundle_roundtrips_signed_receipt() {
+        let interval = FinalizationInterval {
+            interval_id: IntervalId(1),
+            start: Tick(1),
+            end: Tick(1),
+            interval_ref: Digest([1; 32]),
+            history_fragment: HistoryFragment {
+                entries: vec![canonical_entry(
+                    Tick(1),
+                    canonical_payload("f", b"a".to_vec()),
+                    None,
+                )],
+            },
+            replay_params: CanonBytes(b"replay".to_vec()),
+            cohort_witness: CohortWitness {
+                peers: vec![NodeId("a".to_string()), NodeId("b".to_string())],
+                ring_indices: vec![1, 1],
+                peer_new_digests: vec![Digest([2; 32]), Digest([3; 32])],
+            },
+            signed_receipt: vec![7u8; 321],
+        };
+        let sig = vec![7u8; 321];
+        let bundle = export_bundle(interval);
+        let back = decode_tlbundle(&encode_tlbundle(&bundle)).unwrap();
+        assert_eq!(back, bundle);
+        assert_eq!(back.signed_receipt, sig);
     }
 }

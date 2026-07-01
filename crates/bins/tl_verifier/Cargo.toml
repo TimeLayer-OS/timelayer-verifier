@@ -5,19 +5,32 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[[bin]]
-name = "timelayer-verifier"
-path = "src/main.rs"
-
 [features]
-# Offline public verifier: strips internal diagnostic vocabulary so it never
-# reaches the shipped binary. This is the only build this repo produces; the
-# online cross-check path lives in the internal tree, not here.
-default = ["public"]
-public = ["tl_verify_public/public"]
+# The public repo ships the offline verifier only: the online verify-live path
+# and its network deps are not part of this source drop.
+default = []
+# Built for the shipped offline verifier: strips internal diagnostic vocabulary.
+public = ["tl_verify_public/public", "tl_verify_authn/public"]
 
 [dependencies]
 tl_receipts.workspace = true
 tl_verify_public.workspace = true
+# Authenticity layer: the Ed25519 cohort-quorum check. Offline "VALID FINAL" now
+# requires a real k-of-n quorum of distinct roster signers, not just hash
+# self-consistency. Lives outside Layer A (it depends on asymmetric crypto).
+tl_verify_authn.workspace = true
+# Roster model + quorum mode for the embedded trust anchor.
+tl_cohort_sig.workspace = true
+# Needed by the offline `--expect` content binding (decode_tlcert,
+# interval_ref_from_digests, digest_bytes) — present in the public build too.
 tl_finality.workspace = true
 tl_digest.workspace = true
+
+[dev-dependencies]
+# End-to-end fixture minting for the authenticity tests: build a structurally
+# valid cert+bundle, sign it with a controlled test roster, drive the real
+# verify codepath.
+tl_canon_types.workspace = true
+tl_cohort.workspace = true
+tl_rw_core.workspace = true
+tl_shadow.workspace = true
