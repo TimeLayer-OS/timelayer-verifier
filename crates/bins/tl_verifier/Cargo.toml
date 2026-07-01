@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "timelayer-verifier"
+path = "src/main.rs"
+
 [features]
 # The public repo ships the offline verifier only: the online verify-live path
 # and its network deps are not part of this source drop.
