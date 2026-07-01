@@ -12,7 +12,7 @@ path = "src/main.rs"
 [features]
 # The public repo ships the offline verifier only: the online verify-live path
 # and its network deps are not part of this source drop.
-default = []
+default = ["public"]
 # Built for the shipped offline verifier: strips internal diagnostic vocabulary.
 public = ["tl_verify_public/public", "tl_verify_authn/public"]
 

@@ -10,12 +10,6 @@ use tl_receipts::ReceiptStatus;
 use tl_verify_authn::verify_bytes_with_roster;
 use tl_verify_public::PublicVerdict;
 
-#[cfg(feature = "live")]
-use tl_transport::{send_line, MAX_LINE_BYTES};
-#[cfg(feature = "live")]
-use tl_verify_public::PublicVerifier;
-#[cfg(feature = "live")]
-use tl_verify_public::verify_bytes;
 
 const MAX_CERT_BYTES: u64 = 1024 * 1024;
 const MAX_BUNDLE_BYTES: u64 = 16 * 1024 * 1024;
@@ -33,18 +27,10 @@ const QUORUM_K: usize = 2;
 fn embedded_roster() -> Option<Roster> {
     parse_roster(EMBEDDED_ROSTER)
 }
-#[cfg(feature = "live")]
-const MAX_COHORT_CONFIG_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Debug, Default)]
 pub struct VerifierCli;
 
-#[cfg(feature = "live")]
-#[derive(Clone, Debug, Default)]
-pub struct VerifierHttpService {
-    pub verifier: PublicVerifier,
-    pub bind_addr: String,
-}
 
 pub fn run_verifier(args: &[String]) -> i32 {
     match args.get(1).map(String::as_str) {
@@ -54,19 +40,12 @@ pub fn run_verifier(args: &[String]) -> i32 {
         Some("verify") if args.len() == 6 && args[4] == "--expect" => {
             verify_files(Path::new(&args[2]), Path::new(&args[3]), Some(&args[5]))
         }
-        #[cfg(feature = "live")]
-        Some("verify-live") if args.len() == 5 => {
-            verify_live(Path::new(&args[2]), Path::new(&args[3]), Path::new(&args[4]))
+        _ => {
+            eprintln!(
+                "usage: timelayer-verifier verify <cert.tlcert> <bundle.tlbundle> [--expect <hex-digest>]"
+            );
+            1
         }
-        #[cfg(feature = "live")]
-        Some("serve") if args.len() == 3 => {
-            let _surface = VerifierHttpService {
-                verifier: PublicVerifier::default(),
-                bind_addr: args[2].clone(),
-            };
-            0
-        }
-        _ => 1,
     }
 }
 
@@ -159,12 +138,6 @@ fn verify_files_with_policy(
             println!("VALID FINAL");
             0
         }
-        #[cfg(feature = "live")]
-        verdict => {
-            eprintln!("{:?}", verdict);
-            1
-        }
-        #[cfg(not(feature = "live"))]
         _ => {
             eprintln!("NOT VALID");
             1
@@ -175,223 +148,15 @@ fn verify_files_with_policy(
 /// Offline verification proves the presented history is internally consistent
 /// and reproducible. The online cross-check (compiled only into the internal
 /// `live` build) is not part of the public offline tool.
-#[cfg(feature = "live")]
-fn verify_live(cert_path: &Path, bundle_path: &Path, cohort_config_path: &Path) -> i32 {
-    let Some(cert) = read_or_report(cert_path, MAX_CERT_BYTES) else {
-        return 1;
-    };
-    let Some(bundle) = read_or_report(bundle_path, MAX_BUNDLE_BYTES) else {
-        return 1;
-    };
 
-    match verify_bytes(&cert, Some(&bundle)) {
-        PublicVerdict::VALID(ReceiptStatus::FINAL) => {}
-        verdict => {
-            eprintln!("{:?}", verdict);
-            return 1;
-        }
-    }
 
-    let decoded = match decode_tlcert(&cert) {
-        Ok(decoded) => decoded,
-        Err(error) => {
-            eprintln!("UNVERIFIABLE cert decode: {:?}", error);
-            return 1;
-        }
-    };
-    let interval_id = decoded.issued_at_pos;
 
-    let config = match read_limited(cohort_config_path, MAX_COHORT_CONFIG_BYTES)
-        .and_then(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
-    {
-        Ok(text) => text,
-        Err(error) => {
-            eprintln!("{}", error);
-            return 1;
-        }
-    };
-    let threshold = parse_threshold(&config);
-    let auth_token = parse_auth_token(&config);
-    let seeds = parse_seed_endpoints(&config);
-    let endpoints = if seeds.is_empty() {
-        parse_tlapi_endpoints(&config)
-    } else {
-        let responders: Vec<String> = decoded.peers.iter().map(|peer| peer.0.clone()).collect();
-        resolve_responder_endpoints(&seeds, &responders, auth_token.as_deref())
-    };
-    if threshold == 0 || endpoints.is_empty() {
-        eprintln!(
-            "UNVERIFIABLE cohort config: needs quorum_threshold and tlapi endpoints (or reachable seeds)"
-        );
-        return 1;
-    }
 
-    let request = if seeds.is_empty() {
-        authed_request(
-            &format!("TLAPI_FETCH_CERT interval={}", interval_id),
-            auth_token.as_deref(),
-        )
-    } else {
-        authed_request(
-            &format!(
-                "TLAPI_FETCH_CERT_BY_REF interval_ref={}",
-                hex_encode(&decoded.interval_ref.0)
-            ),
-            auth_token.as_deref(),
-        )
-    };
-    let mut attestations = 0usize;
-    let mut reachable = 0usize;
-    for endpoint in &endpoints {
-        let response = match send_line(endpoint, &request, 5_000) {
-            Ok(response) => response,
-            Err(_) => continue,
-        };
-        reachable += 1;
-        if !response.contains("PASS") {
-            continue;
-        }
-        if let Some(served) = decode_hex_field(&response, "bytes_hex") {
-            if served == cert {
-                attestations += 1;
-            }
-        }
-    }
 
-    if attestations >= threshold {
-        println!(
-            "VALID FINAL live cohort attestations={}/{} threshold={}",
-            attestations, reachable, threshold
-        );
-        0
-    } else {
-        eprintln!(
-            "DIVERGENT live cohort attests a different certificate for interval {}: {}/{} matched, threshold {}",
-            interval_id, attestations, reachable, threshold
-        );
-        1
-    }
-}
 
-#[cfg(feature = "live")]
-fn parse_threshold(config: &str) -> usize {
-    config
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("quorum_threshold="))
-        .and_then(|value| value.trim().parse().ok())
-        .unwrap_or(0)
-}
 
-#[cfg(feature = "live")]
-fn parse_tlapi_endpoints(config: &str) -> Vec<String> {
-    config
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("tlapi="))
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .collect()
-}
 
-#[cfg(feature = "live")]
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
-}
 
-#[cfg(feature = "live")]
-fn parse_seed_endpoints(config: &str) -> Vec<String> {
-    config
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("seed="))
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .collect()
-}
-
-#[cfg(feature = "live")]
-fn resolve_responder_endpoints(
-    seeds: &[String],
-    responders: &[String],
-    auth_token: Option<&str>,
-) -> Vec<String> {
-    use std::collections::BTreeMap;
-    let mut directory: BTreeMap<String, String> = BTreeMap::new();
-    let request = authed_request("PEERS_REQUEST", auth_token);
-    for seed in seeds {
-        let Ok(response) = send_line(seed, &request, 5_000) else {
-            continue;
-        };
-        for token in response.split_whitespace() {
-            if let Some(rest) = token.strip_prefix("peer=") {
-                let parts: Vec<&str> = rest.split('@').collect();
-                if parts.len() >= 3 {
-                    directory.insert(parts[0].to_string(), parts[2].to_string());
-                }
-            }
-        }
-    }
-    let mut out = Vec::new();
-    for id in responders {
-        if let Some(addr) = directory.get(id) {
-            if !out.contains(addr) {
-                out.push(addr.clone());
-            }
-        }
-    }
-    out
-}
-
-#[cfg(feature = "live")]
-fn parse_auth_token(config: &str) -> Option<String> {
-    config
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("auth_token="))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-}
-
-#[cfg(feature = "live")]
-fn authed_request(request: &str, auth_token: Option<&str>) -> String {
-    match auth_token {
-        Some(token) => format!("{request} auth_token={token}"),
-        None => request.to_string(),
-    }
-}
-
-#[cfg(feature = "live")]
-fn decode_hex_field(text: &str, key: &str) -> Option<Vec<u8>> {
-    let prefix = format!("{key}=");
-    let value = text
-        .split_whitespace()
-        .find_map(|part| part.strip_prefix(&prefix))?;
-    hex_to_bytes(value)
-}
-
-#[cfg(feature = "live")]
-fn hex_to_bytes(value: &str) -> Option<Vec<u8>> {
-    if !value.len().is_multiple_of(2) {
-        return None;
-    }
-    if value.len() > MAX_LINE_BYTES * 2 {
-        return None;
-    }
-    let mut out = Vec::with_capacity(value.len() / 2);
-    let bytes = value.as_bytes();
-    let mut idx = 0;
-    while idx < bytes.len() {
-        let hi = (bytes[idx] as char).to_digit(16)?;
-        let lo = (bytes[idx + 1] as char).to_digit(16)?;
-        out.push(((hi << 4) | lo) as u8);
-        idx += 2;
-    }
-    Some(out)
-}
 
 fn read_limited(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
