@@ -34,6 +34,10 @@ pub struct VerifierCli;
 
 pub fn run_verifier(args: &[String]) -> i32 {
     match args.get(1).map(String::as_str) {
+        Some("--version") | Some("-V") => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            0
+        }
         Some("verify") if args.len() == 4 => {
             verify_files(Path::new(&args[2]), Path::new(&args[3]), None)
         }
