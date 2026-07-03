@@ -89,6 +89,22 @@ Both vectors are real `tlbundle/2` receipts minted by the live network.
 independently see which keys are in the network. **The verifier does not need these files** —
 a receipt is self-contained — they are published purely for transparency and cross-checking.
 
+## Threat model
+
+- **What a receipt proves.** That this `cert.tlcert` + `bundle.tlbundle` is internally
+  consistent (BLAKE3 root), carries a `FINAL` marker, and was signed by a quorum of the
+  published operator keys (Ed25519) over exactly this content — checkable offline, with no
+  network, key server, or roster lookup.
+- **What it does not prove.** The *truth* of the content. A receipt proves a quorum attested to
+  this specific document, not that the document's claims are correct.
+- **Operator key compromise.** One key is not enough. `VALID FINAL` requires a quorum of
+  signatures from *distinct* independent operators, so a single compromised operator key cannot
+  forge a receipt. Keys are rotated by publishing a new epoch.
+- **Quorum unavailable.** Fail-closed: if a quorum cannot sign, no receipt is issued — you get
+  none, never a false one. Receipts already issued stay verifiable offline forever (self-contained).
+- **Receipt loss.** The receipt is what you keep; the network stores none of your content
+  (only a hash ever leaves you). If a receipt is lost, re-notarize the action to obtain a new one.
+
 ## License
 
 Apache 2.0 — see [`LICENSE`](LICENSE).
