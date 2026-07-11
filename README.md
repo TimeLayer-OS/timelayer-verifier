@@ -18,6 +18,17 @@ timelayer-verifier verify cert.tlcert bundle.tlbundle
 > never on secrecy of the code. An external security audit is on the roadmap — until then we
 > don't claim "unforgeable," only "signed by a quorum and checkable offline."
 
+## Why you might care
+
+- **You were handed a receipt** — a payment confirmation, an AI agent's action record,
+  a signed document trail — and need to know it's real. This tool answers on your own
+  machine, in one command. `VALID FINAL` or not; no account, no API key, no network.
+- **You answer to auditors.** Evidence that can be re-checked years later, offline,
+  without the vendor's cooperation, is the difference between "trust our logs" and proof.
+- **You don't trust us — good.** That is the design goal: the verifier is open source,
+  embeds the operators' public keys, and never calls home. Read it, build it, keep it.
+
+
 ## What it checks
 
 A receipt is the pair `cert.tlcert` (the certificate) + `bundle.tlbundle` (its supporting
