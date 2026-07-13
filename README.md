@@ -2,6 +2,8 @@
 
 **English** · [Русский](README.ru.md)
 
+[![ci](https://github.com/TimeLayer-OS/timelayer-verifier/actions/workflows/ci.yml/badge.svg)](https://github.com/TimeLayer-OS/timelayer-verifier/actions/workflows/ci.yml)
+
 > **FOR AGENTS.** Verify a receipt in three commands (fail-closed — parse the exit code first):
 > ```bash
 > timelayer-verifier verify cert.tlcert bundle.tlbundle            # VALID FINAL | NOT VALID
