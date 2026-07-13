@@ -2,6 +2,13 @@
 
 **English** · [Русский](README.ru.md)
 
+> **FOR AGENTS.** Verify a receipt in three commands (fail-closed — parse the exit code first):
+> ```bash
+> timelayer-verifier verify cert.tlcert bundle.tlbundle            # VALID FINAL | NOT VALID
+> timelayer-verifier verify cert.tlcert bundle.tlbundle --expect <sha256>   # bound to your action
+> ```
+> Working method (receipts + brain): [`AGENTS.md`](AGENTS.md).
+
 A small, self-contained tool that **verifies a TimeLayer receipt offline** — with no network,
 no roster lookup, and no trust in us. A receipt is a **pair of files** that carries everything
 needed to check it; the verifier recomputes every hash and checks the signatures locally.
@@ -78,10 +85,22 @@ exactly what you can read and compile.
 ## Use
 
 ```bash
+# 1) is this receipt authentic and complete?
 timelayer-verifier verify <cert.tlcert> <bundle.tlbundle>
+
+# 2) …and is it about EXACTLY this action? (bind to the subject digest)
+timelayer-verifier verify <cert.tlcert> <bundle.tlbundle> --expect <hex-digest>
 ```
 
-Exit code `0` = `VALID FINAL`, `1` = `NOT VALID` / `UNVERIFIABLE`.
+**`--expect <hex-digest>`** ties the check to one specific action/document. Pass the sha256
+(hex) of the exact thing you notarized; a receipt that is valid *in itself* but attests a
+different subject returns `UNVERIFIABLE` (does not attest the expected digest). This is the
+defence against **receipt transplant** — reusing a valid receipt for a different action.
+
+**Verdicts and streams.** `VALID FINAL` prints to **stdout** (exit `0`). `NOT VALID`
+(forged/tampered/divergent) and `UNVERIFIABLE` (undecodable input, or `--expect` mismatch)
+print to **stderr** (exit `1`). Parse the exit code first; treat any non-`VALID FINAL` as
+refuse (fail-closed). A machine-readable `--json` mode is on the roadmap.
 
 ## Test vectors (`testvectors/`)
 
