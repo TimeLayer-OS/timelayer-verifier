@@ -157,6 +157,12 @@ pub fn run_verifier(args: &[String]) -> i32 {
             let mut i = 0;
             while i < rest.len() {
                 match rest[i].as_str() {
+                    // `verify --help` must keep working AND mention --expect: integrators
+                    // (e.g. TL-Agent) probe this to detect subject-binding support.
+                    "--help" | "-h" => {
+                        println!("{HELP}");
+                        return 0;
+                    }
                     "--json" => json = true,
                     "--expect" => {
                         if i + 1 >= rest.len() {
