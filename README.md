@@ -102,7 +102,7 @@ defence against **receipt transplant** — reusing a valid receipt for a differe
 **Verdicts and streams.** `VALID FINAL` prints to **stdout** (exit `0`). `NOT VALID`
 (forged/tampered/divergent) and `UNVERIFIABLE` (undecodable input, or `--expect` mismatch)
 print to **stderr** (exit `1`). Parse the exit code first; treat any non-`VALID FINAL` as
-refuse (fail-closed). A machine-readable `--json` mode is on the roadmap.
+refuse (fail-closed). A machine-readable `--json` mode is available: it prints `{"result","reason","expect_matched","verifier_version"}` to stdout.
 
 ## Test vectors (`testvectors/`)
 

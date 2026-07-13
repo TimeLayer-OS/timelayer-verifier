@@ -32,22 +32,169 @@ fn embedded_roster() -> Option<Roster> {
 pub struct VerifierCli;
 
 
+const HELP: &str = "\
+timelayer-verifier — offline verification of TimeLayer receipts
+
+USAGE:
+  timelayer-verifier verify <cert.tlcert> <bundle.tlbundle> [--expect <hex>] [--json]
+  timelayer-verifier --version | -V
+  timelayer-verifier --help | -h
+
+VERIFY:
+  Recomputes the receipt's BLAKE3 commitment, checks the Ed25519 quorum against
+  the compiled-in operator roster, and requires status FINAL. No network, no key
+  server, no external files — the receipt is self-contained.
+
+  --expect <hex>   Bind the check to a specific subject: the receipt must attest
+                   exactly this digest (hex of your action/document). A valid but
+                   unrelated receipt is refused (receipt-transplant defence).
+  --json           Emit one JSON object to stdout instead of a text verdict.
+
+VERDICTS:
+  VALID FINAL    authentic, complete, and (with --expect) about that subject
+  NOT VALID      forged, tampered, divergent, or below quorum
+  UNVERIFIABLE   undecodable input, malformed --expect, or --expect mismatch
+
+STREAMS & EXIT:
+  Text mode: VALID FINAL -> stdout; NOT VALID / UNVERIFIABLE -> stderr.
+  JSON mode: the object always goes to stdout.
+  Exit code: 0 = VALID FINAL, 1 = anything else (fail-closed — check it first).
+
+JSON SHAPE:
+  {\"result\":\"valid_final|not_valid|unverifiable\",\"reason\":\"...\",
+   \"expect_matched\":true|false|null,\"verifier_version\":\"x.y.z\"}";
+
+/// Machine-readable outcome of a verify, independent of output format.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VerifyResult {
+    ValidFinal,
+    NotValid,
+    Unverifiable,
+}
+
+impl VerifyResult {
+    fn key(&self) -> &'static str {
+        match self {
+            Self::ValidFinal => "valid_final",
+            Self::NotValid => "not_valid",
+            Self::Unverifiable => "unverifiable",
+        }
+    }
+    fn text(&self) -> &'static str {
+        match self {
+            Self::ValidFinal => "VALID FINAL",
+            Self::NotValid => "NOT VALID",
+            Self::Unverifiable => "UNVERIFIABLE",
+        }
+    }
+    fn exit(&self) -> i32 {
+        if matches!(self, Self::ValidFinal) { 0 } else { 1 }
+    }
+}
+
+pub struct Verdict {
+    pub result: VerifyResult,
+    pub reason: String,
+    /// Some(true/false) when --expect was supplied; None otherwise.
+    pub expect_matched: Option<bool>,
+}
+
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+fn emit(verdict: &Verdict, json: bool) -> i32 {
+    if json {
+        let em = match verdict.expect_matched {
+            Some(true) => "true",
+            Some(false) => "false",
+            None => "null",
+        };
+        println!(
+            "{{\"result\":\"{}\",\"reason\":\"{}\",\"expect_matched\":{},\"verifier_version\":\"{}\"}}",
+            verdict.result.key(),
+            json_escape(&verdict.reason),
+            em,
+            env!("CARGO_PKG_VERSION"),
+        );
+    } else if matches!(verdict.result, VerifyResult::ValidFinal) {
+        println!("{}", verdict.result.text());
+    } else if verdict.reason.is_empty() {
+        eprintln!("{}", verdict.result.text());
+    } else {
+        eprintln!("{} {}", verdict.result.text(), verdict.reason);
+    }
+    verdict.result.exit()
+}
+
 pub fn run_verifier(args: &[String]) -> i32 {
     match args.get(1).map(String::as_str) {
         Some("--version") | Some("-V") => {
             println!("{}", env!("CARGO_PKG_VERSION"));
             0
         }
-        Some("verify") if args.len() == 4 => {
-            verify_files(Path::new(&args[2]), Path::new(&args[3]), None)
+        Some("--help") | Some("-h") | Some("help") => {
+            println!("{HELP}");
+            0
         }
-        Some("verify") if args.len() == 6 && args[4] == "--expect" => {
-            verify_files(Path::new(&args[2]), Path::new(&args[3]), Some(&args[5]))
+        Some("verify") => {
+            // Flexible flag parse: positional cert/bundle in order; --expect <hex>; --json.
+            let rest = &args[2..];
+            let mut positional: Vec<&String> = Vec::new();
+            let mut expect: Option<&String> = None;
+            let mut json = false;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--json" => json = true,
+                    "--expect" => {
+                        if i + 1 >= rest.len() {
+                            return emit(&Verdict {
+                                result: VerifyResult::Unverifiable,
+                                reason: "--expect requires a hex digest".into(),
+                                expect_matched: None,
+                            }, json);
+                        }
+                        expect = Some(&rest[i + 1]);
+                        i += 1;
+                    }
+                    other if other.starts_with("--") => {
+                        eprintln!("unknown flag: {other}");
+                        return 1;
+                    }
+                    _ => positional.push(&rest[i]),
+                }
+                i += 1;
+            }
+            if positional.len() != 2 {
+                eprintln!(
+                    "usage: timelayer-verifier verify <cert.tlcert> <bundle.tlbundle> [--expect <hex>] [--json]"
+                );
+                return 1;
+            }
+            let verdict = evaluate_files(
+                Path::new(positional[0]),
+                Path::new(positional[1]),
+                expect.map(String::as_str),
+            );
+            emit(&verdict, json)
         }
         _ => {
             eprintln!(
-                "usage: timelayer-verifier verify <cert.tlcert> <bundle.tlbundle> [--expect <hex-digest>]"
+                "usage: timelayer-verifier verify <cert.tlcert> <bundle.tlbundle> [--expect <hex>] [--json]"
             );
+            eprintln!("try: timelayer-verifier --help");
             1
         }
     }
@@ -94,12 +241,15 @@ fn read_or_report(path: &Path, max_bytes: u64) -> Option<Vec<u8>> {
     }
 }
 
-fn verify_files(cert_path: &Path, bundle_path: &Path, expect_hex: Option<&str>) -> i32 {
+fn evaluate_files(cert_path: &Path, bundle_path: &Path, expect_hex: Option<&str>) -> Verdict {
     let Some(roster) = embedded_roster() else {
-        eprintln!("UNVERIFIABLE embedded roster is malformed");
-        return 1;
+        return Verdict {
+            result: VerifyResult::Unverifiable,
+            reason: "embedded roster is malformed".into(),
+            expect_matched: None,
+        };
     };
-    verify_files_with_policy(
+    evaluate_files_with_policy(
         cert_path,
         bundle_path,
         expect_hex,
@@ -110,9 +260,45 @@ fn verify_files(cert_path: &Path, bundle_path: &Path, expect_hex: Option<&str>) 
 }
 
 /// Core of the offline verify command, parameterized by the quorum policy
-/// (roster + k + mode). Production wiring passes the compiled-in trust anchor;
-/// the binary integration tests pass a controlled test roster so the honest
-/// path can be exercised end-to-end without the operators' private keys.
+/// (roster + k + mode). Returns a structured `Verdict` (format-agnostic).
+/// Production wiring passes the compiled-in trust anchor; the binary integration
+/// tests pass a controlled test roster so the honest path can be exercised
+/// end-to-end without the operators' private keys.
+fn evaluate_files_with_policy(
+    cert_path: &Path,
+    bundle_path: &Path,
+    expect_hex: Option<&str>,
+    roster: &Roster,
+    k: usize,
+    mode: QuorumMode,
+) -> Verdict {
+    let want_expect = expect_hex.is_some();
+    let unresolved = || if want_expect { Some(false) } else { None };
+    let Some(cert) = read_or_report(cert_path, MAX_CERT_BYTES) else {
+        return Verdict { result: VerifyResult::Unverifiable, reason: "cannot read cert".into(), expect_matched: unresolved() };
+    };
+    let Some(bundle) = read_or_report(bundle_path, MAX_BUNDLE_BYTES) else {
+        return Verdict { result: VerifyResult::Unverifiable, reason: "cannot read bundle".into(), expect_matched: unresolved() };
+    };
+    match verify_bytes_with_roster(&cert, Some(&bundle), roster, k, mode) {
+        PublicVerdict::VALID(ReceiptStatus::FINAL) => {
+            if let Some(hex) = expect_hex {
+                let Some(expected) = parse_expect_hex(hex) else {
+                    return Verdict { result: VerifyResult::Unverifiable, reason: "--expect must be a hex digest".into(), expect_matched: Some(false) };
+                };
+                if !cert_attests(&cert, &expected) {
+                    return Verdict { result: VerifyResult::Unverifiable, reason: "receipt does not attest the expected digest".into(), expect_matched: Some(false) };
+                }
+                return Verdict { result: VerifyResult::ValidFinal, reason: String::new(), expect_matched: Some(true) };
+            }
+            Verdict { result: VerifyResult::ValidFinal, reason: String::new(), expect_matched: None }
+        }
+        _ => Verdict { result: VerifyResult::NotValid, reason: String::new(), expect_matched: unresolved() },
+    }
+}
+
+/// Back-compat wrapper used by the integration tests: exit code only.
+#[cfg(test)]
 fn verify_files_with_policy(
     cert_path: &Path,
     bundle_path: &Path,
@@ -121,32 +307,9 @@ fn verify_files_with_policy(
     k: usize,
     mode: QuorumMode,
 ) -> i32 {
-    let Some(cert) = read_or_report(cert_path, MAX_CERT_BYTES) else {
-        return 1;
-    };
-    let Some(bundle) = read_or_report(bundle_path, MAX_BUNDLE_BYTES) else {
-        return 1;
-    };
-    match verify_bytes_with_roster(&cert, Some(&bundle), roster, k, mode) {
-        PublicVerdict::VALID(ReceiptStatus::FINAL) => {
-            if let Some(hex) = expect_hex {
-                let Some(expected) = parse_expect_hex(hex) else {
-                    eprintln!("UNVERIFIABLE --expect must be a hex digest");
-                    return 1;
-                };
-                if !cert_attests(&cert, &expected) {
-                    eprintln!("UNVERIFIABLE receipt does not attest the expected digest");
-                    return 1;
-                }
-            }
-            println!("VALID FINAL");
-            0
-        }
-        _ => {
-            eprintln!("NOT VALID");
-            1
-        }
-    }
+    evaluate_files_with_policy(cert_path, bundle_path, expect_hex, roster, k, mode)
+        .result
+        .exit()
 }
 
 /// Offline verification proves the presented history is internally consistent
