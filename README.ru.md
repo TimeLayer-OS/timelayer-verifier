@@ -3,6 +3,7 @@
 [English](README.md) · **Русский**
 
 [![ci](https://github.com/TimeLayer-OS/timelayer-verifier/actions/workflows/ci.yml/badge.svg)](https://github.com/TimeLayer-OS/timelayer-verifier/actions/workflows/ci.yml)
+[![receipt-verified](receipt-verified.svg)](audit/2026-07-14)
 
 > **ДЛЯ АГЕНТОВ.** Проверка квитанции за три команды (fail-closed — сначала код выхода):
 > ```bash

@@ -3,6 +3,7 @@
 **English** · [Русский](README.ru.md)
 
 [![ci](https://github.com/TimeLayer-OS/timelayer-verifier/actions/workflows/ci.yml/badge.svg)](https://github.com/TimeLayer-OS/timelayer-verifier/actions/workflows/ci.yml)
+[![receipt-verified](receipt-verified.svg)](audit/2026-07-14)
 
 > **FOR AGENTS.** Verify a receipt in three commands (fail-closed — parse the exit code first):
 > ```bash
